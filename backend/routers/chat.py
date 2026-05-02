@@ -111,16 +111,28 @@ async def chat(
     history = await supabase.get_messages(session_id, limit=20)
 
     # Fetch company intel if this session has company/role set
-    context: Optional[str] = None
+    context_parts: list[str] = []
+
+    # 1. Onboarding context sent by the frontend (always available after onboarding)
+    if body.onboarding_context and body.onboarding_context.strip():
+        context_parts.append(
+            "USER PROFILE (from onboarding — always remember this):\n"
+            + body.onboarding_context.strip()
+        )
+
+    # 2. Live company intel (fetched on early messages only)
     company = session.get("company", "") if session else ""
     role = session.get("role", "") if session else ""
 
     if company and role and len(history) <= 2:
-        # Only fetch on early messages to avoid redundant calls
         try:
-            context = await retrieval.fetch_company_intel(company, role)
+            intel = await retrieval.fetch_company_intel(company, role)
+            if intel:
+                context_parts.append(intel)
         except Exception as exc:
             logger.warning(f"Company intel fetch failed: {exc}")
+
+    context: Optional[str] = "\n\n---\n\n".join(context_parts) if context_parts else None
 
     # Stream the response
     return StreamingResponse(

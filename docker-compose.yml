@@ -1,41 +1,49 @@
-version: "3.9"
+version: "3.8"
 
 services:
+  # ── Backend (FastAPI / uvicorn) ────────────────────────────────────────────
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: prepq-backend
     ports:
-      - "8000:8000"
+      - "8000:8000"        # host:container — exposes API for local dev/debugging
     env_file:
-      - .env
+      - ./backend/.env               # GROQ_API_KEY, SUPABASE_URL, REDIS_URL, etc.
     environment:
-      - ENVIRONMENT=development
-    volumes:
-      - ./backend:/app
+      - ENVIRONMENT=production
+    # No bind-mount — we run the image as-built.
+    # (A bind-mount would shadow /app and make the Docker build pointless.)
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      # curl is not installed in python:slim; use Python's built-in http module instead
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 15s
+      start_period: 20s
 
+  # ── Frontend (Next.js standalone) ─────────────────────────────────────────
   frontend:
-    image: node:18-alpine
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # NEXT_PUBLIC_* vars are baked into the JS bundle at build time.
+        # Inside the container network the backend is reachable at http://backend:8000.
+        # If you need browser clients to reach the API from outside Docker, use
+        # NEXT_PUBLIC_BACKEND_URL=http://localhost:8000 here (or an env file override).
+        - NEXT_PUBLIC_BACKEND_URL=http://backend:8000
     container_name: prepq-frontend
-    working_dir: /app
     ports:
       - "3000:3000"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
     env_file:
-      - .env
+      - ./frontend/.env.local
     environment:
+      # Runtime env — used by SSR / server-side code inside the container.
       - NEXT_PUBLIC_BACKEND_URL=http://backend:8000
-    command: sh -c "npm install && npm run dev"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy   # wait for backend health before starting frontend
     restart: unless-stopped

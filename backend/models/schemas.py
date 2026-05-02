@@ -11,6 +11,7 @@ from datetime import datetime
 class ChatRequest(BaseModel):
     session_id: Optional[str] = None
     message: str = Field(..., min_length=1, max_length=4000)
+    onboarding_context: Optional[str] = Field(None, max_length=2000)
 
     @field_validator("message")
     @classmethod
