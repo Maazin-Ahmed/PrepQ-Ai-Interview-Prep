@@ -1,3 +1,4 @@
+# ruff: noqa: E402
 # ─────────────────────────────────────────────
 # Load environment — MUST happen before any other
 # imports that read os.environ at module level.

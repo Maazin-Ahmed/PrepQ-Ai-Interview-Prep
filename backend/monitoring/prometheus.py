@@ -2,7 +2,7 @@ import logging
 import time
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
-from prometheus_client import Counter, Histogram, Gauge, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import Counter, Histogram, Gauge
 
 logger = logging.getLogger("prepq.metrics")
 
