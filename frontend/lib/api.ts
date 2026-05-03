@@ -3,25 +3,27 @@ import { createClient } from "@/lib/supabase";
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000";
 
 /**
- * Retrieves the current user's JWT from the Supabase session.
- * Returns empty string if not authenticated or running on the server.
+ * Retrieves the current user's JWT from the Supabase session and formats it as headers.
  */
-async function getAuthToken(): Promise<string> {
-  if (typeof window === "undefined") return "";
+async function authHeaders(): Promise<Record<string, string>> {
+  if (typeof window === "undefined") return { "Content-Type": "application/json" };
+  
   try {
     const supabase = createClient();
     const { data: { session } } = await supabase.auth.getSession();
-    return session?.access_token ?? "";
-  } catch {
-    return "";
+    const token = session?.access_token;
+    
+    if (token) {
+      return { 
+        Authorization: `Bearer ${token}`, 
+        "Content-Type": "application/json" 
+      };
+    }
+  } catch (error) {
+    console.error("Failed to get auth token:", error);
   }
-}
-
-async function authHeaders(): Promise<Record<string, string>> {
-  const token = await getAuthToken();
-  return token
-    ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }
-    : { "Content-Type": "application/json" };
+  
+  return { "Content-Type": "application/json" };
 }
 
 // ─────────────────────────────────────────────

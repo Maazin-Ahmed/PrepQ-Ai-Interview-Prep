@@ -73,6 +73,19 @@ _allowed_origins = list({
     "http://localhost:3001",   # Next.js fallback port
 })
 
+# ─────────────────────────────────────────────
+# Middleware stack
+#
+# FastAPI/Starlette wraps middleware in reverse add order —
+# the LAST added runs OUTERMOST (first to see the request).
+#
+# Execution order (request flow):
+#   CORS → Auth → RateLimit → Route handler
+#
+# Therefore add in reverse: RateLimit first, then Auth, then CORS.
+# ─────────────────────────────────────────────
+app.add_middleware(RateLimitMiddleware)
+app.add_middleware(AuthMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
@@ -81,15 +94,6 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
     expose_headers=["X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
 )
-
-# ─────────────────────────────────────────────
-# Middleware stack (order matters — innermost first)
-# Auth → RateLimit → Route
-# Note: SecurityMiddleware removed to prevent Starlette 
-# streaming response conflicts with body reading.
-# ─────────────────────────────────────────────
-app.add_middleware(RateLimitMiddleware)
-app.add_middleware(AuthMiddleware)
 
 # ─────────────────────────────────────────────
 # Routers
