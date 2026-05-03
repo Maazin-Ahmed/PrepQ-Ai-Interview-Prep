@@ -1,0 +1,223 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ────────────────────────────────────────────
+   Global resets & base styles
+──────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background-color: #080808;
+  color: #f0f0f0;
+  font-family: var(--font-dm-sans), system-ui, sans-serif;
+  line-height: 1.6;
+}
+
+/* ────────────────────────────────────────────
+   Scrollbar — ultra minimal
+──────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #2e2e2e;
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3e3e3e;
+}
+
+/* ────────────────────────────────────────────
+   Selection
+──────────────────────────────────────────── */
+::selection {
+  background: rgba(0, 229, 160, 0.2);
+  color: #f0f0f0;
+}
+
+/* ────────────────────────────────────────────
+   Geist Mono utility class
+──────────────────────────────────────────── */
+.font-mono {
+  font-family: "Geist Mono", ui-monospace, monospace;
+}
+
+/* ────────────────────────────────────────────
+   Terminal cursor
+──────────────────────────────────────────── */
+.cursor-blink::after {
+  content: "▋";
+  color: #00e5a0;
+  animation: blink 1s step-end infinite;
+  margin-left: 1px;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* ────────────────────────────────────────────
+   Accent glow border utility
+──────────────────────────────────────────── */
+.border-accent-glow {
+  border: 1px solid rgba(0, 229, 160, 0.3);
+  box-shadow: 0 0 20px rgba(0, 229, 160, 0.06);
+}
+
+/* ────────────────────────────────────────────
+   Prose-style markdown inside chat messages
+──────────────────────────────────────────── */
+.prose-prepq {
+  font-size: 0.9375rem;
+  line-height: 1.7;
+}
+.prose-prepq h1,
+.prose-prepq h2,
+.prose-prepq h3 {
+  color: #f0f0f0;
+  font-weight: 600;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+}
+.prose-prepq h1 { font-size: 1.25rem; }
+.prose-prepq h2 { font-size: 1.1rem; }
+.prose-prepq h3 { font-size: 1rem; }
+.prose-prepq p {
+  margin-bottom: 0.75em;
+  color: #d0d0d0;
+}
+.prose-prepq ul,
+.prose-prepq ol {
+  margin: 0.5em 0 0.75em 1.5em;
+  color: #c0c0c0;
+}
+.prose-prepq li {
+  margin-bottom: 0.25em;
+}
+.prose-prepq strong {
+  color: #f0f0f0;
+  font-weight: 600;
+}
+.prose-prepq code {
+  font-family: "Geist Mono", monospace;
+  font-size: 0.85em;
+  background: #161616;
+  border: 1px solid #262626;
+  border-radius: 3px;
+  padding: 0.1em 0.4em;
+  color: #00e5a0;
+}
+.prose-prepq pre {
+  background: #0f0f0f;
+  border: 1px solid #1f1f1f;
+  border-radius: 6px;
+  padding: 1rem;
+  overflow-x: auto;
+  margin: 1em 0;
+}
+.prose-prepq pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.875rem;
+  color: #e0e0e0;
+}
+.prose-prepq blockquote {
+  border-left: 2px solid #00e5a0;
+  padding-left: 1rem;
+  margin: 1em 0;
+  color: #8a8a8a;
+  font-style: italic;
+}
+.prose-prepq hr {
+  border: none;
+  border-top: 1px solid #1f1f1f;
+  margin: 1.5em 0;
+}
+.prose-prepq a {
+  color: #00e5a0;
+  text-decoration: none;
+}
+.prose-prepq a:hover {
+  text-decoration: underline;
+}
+
+/* ────────────────────────────────────────────
+   Score bar animation
+──────────────────────────────────────────── */
+@keyframes fillBar {
+  from { width: 0%; }
+  to { width: var(--bar-width); }
+}
+
+.score-bar-fill {
+  animation: fillBar 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ────────────────────────────────────────────
+   Tier badge styles
+──────────────────────────────────────────── */
+.tier-1-badge {
+  background: rgba(255, 59, 48, 0.1);
+  color: #ff3b30;
+  border: 1px solid rgba(255, 59, 48, 0.2);
+}
+.tier-2-badge {
+  background: rgba(255, 184, 0, 0.1);
+  color: #ffb800;
+  border: 1px solid rgba(255, 184, 0, 0.2);
+}
+.tier-3-badge {
+  background: rgba(0, 229, 160, 0.08);
+  color: #00e5a0;
+  border: 1px solid rgba(0, 229, 160, 0.2);
+}
+
+/* ────────────────────────────────────────────
+   Focus ring — keyboard accessible
+──────────────────────────────────────────── */
+.focus-ring:focus-visible {
+  outline: 2px solid #00e5a0;
+  outline-offset: 2px;
+}
+
+/* ────────────────────────────────────────────
+   Textarea reset
+──────────────────────────────────────────── */
+textarea {
+  resize: none;
+}
+
+/* ────────────────────────────────────────────
+   Grid background (landing hero)
+──────────────────────────────────────────── */
+.bg-grid {
+  background-image: linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+/* ────────────────────────────────────────────
+   Sidebar transition
+──────────────────────────────────────────── */
+.duration-250 {
+  transition-duration: 250ms;
+}
+
+.sidebar-panel {
+  transition: transform 250ms cubic-bezier(0.4, 0, 0.2, 1);
+}
