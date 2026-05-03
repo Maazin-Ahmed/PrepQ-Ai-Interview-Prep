@@ -47,7 +47,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if request.method == "OPTIONS":
             return await call_next(request)
 
-        if path in SKIP_PATHS:
+        # Strip trailing slash for robust matching (e.g. /health/ -> /health)
+        stripped_path = path.rstrip("/") if path != "/" else "/"
+        if stripped_path in SKIP_PATHS:
             return await call_next(request)
 
         # ── Development bypass ──────────────────────────
