@@ -46,15 +46,15 @@ jobs:
       - name: Run tests
         working-directory: backend
         env:
-          ANTHROPIC_API_KEY: test_key
-          TAVILY_API_KEY: test_key
-          SUPABASE_URL: https://test.supabase.co
-          SUPABASE_SERVICE_KEY: test_key
-          JWT_SECRET: test_secret_at_least_32_chars_long
-          UPSTASH_REDIS_URL: redis://localhost:6379
-          UPSTASH_REDIS_TOKEN: test_token
-          FRONTEND_URL: http://localhost:3000
-          ENVIRONMENT: test
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          UPSTASH_REDIS_URL: ${{ secrets.UPSTASH_REDIS_URL }}
+          UPSTASH_REDIS_TOKEN: ${{ secrets.UPSTASH_REDIS_TOKEN }}
+          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          ENVIRONMENT: ${{ secrets.ENVIRONMENT }}
+          PORT: ${{ secrets.PORT }}
         run: |
           pip install pytest pytest-asyncio httpx
           pytest tests/ -v --tb=short || echo "No tests found, skipping"
@@ -91,7 +91,9 @@ jobs:
       - name: Build
         working-directory: frontend
         env:
-          NEXT_PUBLIC_BACKEND_URL: http://localhost:8000
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_BACKEND_URL: ${{ secrets.NEXT_PUBLIC_BACKEND_URL }}
         run: npm run build
 
   # ──────────────────────────────────────────
@@ -107,6 +109,16 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build backend image
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          UPSTASH_REDIS_URL: ${{ secrets.UPSTASH_REDIS_URL }}
+          UPSTASH_REDIS_TOKEN: ${{ secrets.UPSTASH_REDIS_TOKEN }}
+          FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
+          ENVIRONMENT: ${{ secrets.ENVIRONMENT }}
+          PORT: ${{ secrets.PORT }}
         run: docker build -t prepq-backend:${{ github.sha }} ./backend
 
       - name: Log in to Docker Hub (optional — add secrets to enable push)
