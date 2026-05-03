@@ -4,7 +4,7 @@ from fastapi import Request, HTTPException
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
-from jose import JWTError, jwt
+from supabase import create_client
 
 logger = logging.getLogger("prepq.auth")
 
@@ -18,34 +18,17 @@ SKIP_PATHS = {
     "/metrics",
 }
 
-ALGORITHM = "HS256"
+supabase_url = os.environ.get("SUPABASE_URL", "")
+supabase_key = os.environ.get("SUPABASE_SERVICE_KEY", "")
 
-
-def _get_jwt_secret() -> str:
-    secret = os.environ.get("JWT_SECRET", "")
-    if not secret:
-        raise RuntimeError("JWT_SECRET environment variable is not set.")
-    return secret
-
-
-def verify_jwt(token: str) -> dict:
-    """
-    Verifies a Supabase-issued JWT.
-    Returns the decoded payload dict on success.
-    Raises HTTPException 401 on any failure.
-    """
-    secret = _get_jwt_secret()
+async def verify_supabase_token(token: str):
     try:
-        payload = jwt.decode(
-            token,
-            secret,
-            algorithms=[ALGORITHM],
-            options={"verify_aud": False},  # Supabase sets audience to 'authenticated'
-        )
-        return payload
-    except JWTError as exc:
-        logger.warning(f"JWT verification failed: {exc}")
-        raise HTTPException(status_code=401, detail="Invalid or expired token.")
+        client = create_client(supabase_url, supabase_key)
+        user = client.auth.get_user(token)
+        return user.user
+    except Exception as e:
+        logger.warning(f"Supabase JWT verification failed: {e}")
+        return None
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
@@ -91,33 +74,20 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         token = auth_header.removeprefix("Bearer ").strip()
 
-        try:
-            payload = verify_jwt(token)
-        except HTTPException as exc:
-            return JSONResponse(
-                status_code=exc.status_code,
-                content={"error": exc.detail, "code": exc.status_code},
-                headers={
-                    "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
-                    "Access-Control-Allow-Credentials": "true",
-                }
-            )
-
-        # Supabase JWT payload structure: {"sub": "<user_uuid>", "email": "...", ...}
-        user_id = payload.get("sub")
-        if not user_id:
+        user = await verify_supabase_token(token)
+        if not user:
             return JSONResponse(
                 status_code=401,
-                content={"error": "Token missing user identifier.", "code": 401},
+                content={"error": "Invalid or expired token.", "code": 401},
                 headers={
                     "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
                     "Access-Control-Allow-Credentials": "true",
                 }
             )
 
-        request.state.user_id = user_id
-        request.state.user_email = payload.get("email", "")
-        request.state.jwt_payload = payload
+        request.state.user_id = user.id
+        request.state.user_email = getattr(user, "email", "")
+        request.state.jwt_payload = {}
 
         return await call_next(request)
 
