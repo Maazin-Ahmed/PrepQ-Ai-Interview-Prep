@@ -328,9 +328,12 @@ export async function listSessions() {
 
 export async function checkHealth(): Promise<boolean> {
   try {
-    const response = await fetch(`${BACKEND_URL}/health`);
-    return response.ok;
+    await fetch(`${BACKEND_URL}/health`);
+    // Any response from the backend means it's reachable.
+    // Even if it returns 401 or 500, the server process is alive.
+    return true;
   } catch {
+    // A thrown error means network failure (DNS, connection refused, etc.)
     return false;
   }
 }

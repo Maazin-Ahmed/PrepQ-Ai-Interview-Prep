@@ -254,15 +254,8 @@ function GeneratingView({
             </div>
             <div className="bg-surface-1 border border-danger/20 rounded-sm p-5">
               <p className="font-mono text-sm text-text-secondary mb-1">
-                {retryCount >= 3
-                  ? "Cannot reach the backend. Make sure it's running:"
-                  : "Could not connect to the PrepQ server."}
+                Cannot reach the backend. Please check your connection or try again.
               </p>
-              {retryCount >= 3 && (
-                <code className="font-mono text-xs text-accent block mt-3">
-                  cd backend && uvicorn main:app --reload --port 8000
-                </code>
-              )}
             </div>
             {retryCount < 3 && (
               <button
