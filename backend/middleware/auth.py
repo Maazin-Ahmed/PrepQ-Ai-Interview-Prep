@@ -83,6 +83,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return JSONResponse(
                 status_code=401,
                 content={"error": "Missing or invalid Authorization header.", "code": 401},
+                headers={
+                    "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
+                    "Access-Control-Allow-Credentials": "true",
+                }
             )
 
         token = auth_header.removeprefix("Bearer ").strip()
@@ -93,6 +97,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return JSONResponse(
                 status_code=exc.status_code,
                 content={"error": exc.detail, "code": exc.status_code},
+                headers={
+                    "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
+                    "Access-Control-Allow-Credentials": "true",
+                }
             )
 
         # Supabase JWT payload structure: {"sub": "<user_uuid>", "email": "...", ...}
@@ -101,6 +109,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return JSONResponse(
                 status_code=401,
                 content={"error": "Token missing user identifier.", "code": 401},
+                headers={
+                    "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
+                    "Access-Control-Allow-Credentials": "true",
+                }
             )
 
         request.state.user_id = user_id
