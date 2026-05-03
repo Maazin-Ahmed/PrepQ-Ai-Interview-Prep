@@ -318,3 +318,16 @@ export async function listSessions() {
   if (!response.ok) throw new Error("Failed to fetch sessions");
   return response.json();
 }
+
+// ─────────────────────────────────────────────
+// System
+// ─────────────────────────────────────────────
+
+export async function checkHealth(): Promise<boolean> {
+  try {
+    const response = await fetch(`${BACKEND_URL}/health`);
+    return response.ok;
+  } catch {
+    return false;
+  }
+}

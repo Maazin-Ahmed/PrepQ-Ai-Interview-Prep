@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { streamPlan, streamChat } from "@/lib/api";
+import { streamPlan, streamChat, checkHealth } from "@/lib/api";
 import {
   savePendingPlan,
   savePendingContext,
@@ -325,6 +325,19 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
       textareaRef.current?.focus();
     }
   }, [step, genState, mode]);
+
+  // Check health on load
+  useEffect(() => {
+    async function verifyHealth() {
+      const isHealthy = await checkHealth();
+      if (!isHealthy) {
+        // Force the "Server unreachable" error screen immediately
+        setGenState("error");
+        setRetryCount(3);
+      }
+    }
+    verifyHealth();
+  }, []);
 
   // ── Mode selection ────────────────────────────────────────────────────────
 
