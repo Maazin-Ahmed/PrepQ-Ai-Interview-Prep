@@ -22,15 +22,18 @@ export default function AuthCallbackPage() {
 
   useEffect(() => {
     async function handleCallback() {
+      console.log("[AuthCallback] Page mounted, attempting session exchange...");
       const supabase = createClient();
 
       // Supabase JS SDK can detect and exchange the hash automatically when
       // detectSessionInUrl: true is set (which our singleton does). Calling
       // getSession() here triggers that detection before we do anything else.
       const { data, error: sessionError } = await supabase.auth.getSession();
+      console.log("[AuthCallback] getSession result:", data.session ? `session found, user=${data.session.user.email}` : "no session", sessionError ? `error=${sessionError.message}` : "");
 
       if (!sessionError && data.session) {
         // Session is already set — the SDK handled the hash exchange for us.
+        console.log("[AuthCallback] Session established via SDK auto-detection, redirecting to /chat");
         router.replace("/chat");
         return;
       }
@@ -42,14 +45,17 @@ export default function AuthCallbackPage() {
 
       const accessToken = params.get("access_token");
       const refreshToken = params.get("refresh_token");
+      console.log("[AuthCallback] Manual hash parse — access_token present:", !!accessToken, "| refresh_token present:", !!refreshToken);
 
       if (accessToken && refreshToken) {
         const { error: sessionSetError } = await supabase.auth.setSession({
           access_token: accessToken,
           refresh_token: refreshToken,
         });
+        console.log("[AuthCallback] setSession result:", sessionSetError ? `error=${sessionSetError.message}` : "success");
 
         if (!sessionSetError) {
+          console.log("[AuthCallback] setSession succeeded, redirecting to /chat");
           router.replace("/chat");
           return;
         }
@@ -59,6 +65,7 @@ export default function AuthCallbackPage() {
       }
 
       // No token in hash and no existing session — something upstream failed.
+      console.error("[AuthCallback] No token in hash and no existing session");
       setError(
         sessionError?.message ??
           "No authentication token found. Please try signing in again."

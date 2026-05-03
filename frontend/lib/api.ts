@@ -12,6 +12,8 @@ async function authHeaders(): Promise<Record<string, string>> {
     const supabase = createClient();
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token;
+
+    console.log("[api] authHeaders — session present:", !!session, "| token length:", token?.length ?? 0);
     
     if (token) {
       return { 
@@ -20,9 +22,10 @@ async function authHeaders(): Promise<Record<string, string>> {
       };
     }
   } catch (error) {
-    console.error("Failed to get auth token:", error);
+    console.error("[api] authHeaders — failed to get auth token:", error);
   }
-  
+
+  console.warn("[api] authHeaders — no token found, sending request without Authorization header");
   return { "Content-Type": "application/json" };
 }
 

@@ -23,8 +23,11 @@ export default function AuthGuard({ children }: AuthGuardProps) {
   useEffect(() => {
     const supabase = createClient();
 
-    // 1. Get the initial session (from localStorage / cookie)
+    // 1. Get the initial session (from localStorage / cookie).
+    //    This is the single source of truth for the initial auth check.
+    //    If no session → redirect. If session exists → show the page.
     supabase.auth.getSession().then(({ data: { session } }) => {
+      console.log("[AuthGuard] Initial getSession:", session ? `user=${session.user.email}` : "no session");
       if (!session) {
         router.replace("/login");
       } else {
@@ -33,14 +36,23 @@ export default function AuthGuard({ children }: AuthGuardProps) {
       }
     });
 
-    // 2. Keep the user state in sync with auth events (sign-in, sign-out, token refresh)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) {
+    // 2. Listen for explicit auth state changes AFTER initial check.
+    //    Only redirect on SIGNED_OUT — NOT on transient null sessions
+    //    that fire before the session is fully restored from localStorage.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log("[AuthGuard] onAuthStateChange:", event, session ? `user=${session.user.email}` : "no session");
+
+      if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "USER_UPDATED") {
+        if (session) {
+          setUser(session.user);
+          setChecking(false);
+        }
+      } else if (event === "SIGNED_OUT") {
+        setUser(null);
         router.replace("/login");
-      } else {
-        setUser(session.user);
-        setChecking(false);
       }
+      // Deliberately ignore INITIAL_SESSION here —
+      // getSession() above already handles the initial state.
     });
 
     return () => subscription.unsubscribe();
