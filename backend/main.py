@@ -66,7 +66,7 @@ app = FastAPI(
 # ─────────────────────────────────────────────
 # CORS — locked to frontend domain + localhost
 # ─────────────────────────────────────────────
-_frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000")
+_frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000").rstrip("/")
 _allowed_origins = list({
     _frontend_url,
     "http://localhost:3000",
