@@ -69,8 +69,9 @@ app = FastAPI(
 _frontend_url = os.environ.get("FRONTEND_URL", "http://localhost:3000").rstrip("/")
 _allowed_origins = list({
     _frontend_url,
+    "https://prep-ai-azure.vercel.app",   # production frontend
     "http://localhost:3000",
-    "http://localhost:3001",   # Next.js fallback port
+    "http://localhost:3001",               # Next.js fallback port
 })
 
 # ─────────────────────────────────────────────
