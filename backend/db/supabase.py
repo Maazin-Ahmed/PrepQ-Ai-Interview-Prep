@@ -237,10 +237,63 @@ async def save_onboarding_state(session_id: str, state: dict) -> None:
             _mem_sessions[session_id] = {"id": session_id, "onboarding_state": state}
 
 
+# ─────────────────────────────────────────────
+# CONVERSATION STATE
+# Tracks: stage, plan_generated, current_day,
+# current_topic, mock_question_index, last_response_snippet
+# ─────────────────────────────────────────────
+
+async def get_conv_state(session_id: str) -> dict:
+    """
+    Load the conversation state for a session.
+    Returns make_empty_conv_state() if not yet set.
+    """
+    from agents.conversation_engine import make_empty_conv_state
+    if not _available:
+        session = _mem_sessions.get(session_id, {})
+        return session.get("conv_state") or make_empty_conv_state()
+    try:
+        result = (
+            _client.table("sessions")
+            .select("conv_state")
+            .eq("id", session_id)
+            .maybe_single()
+            .execute()
+        )
+        if result.data and result.data.get("conv_state"):
+            return result.data["conv_state"]
+    except Exception as exc:
+        logger.warning(f"get_conv_state failed: {exc}")
+    from agents.conversation_engine import make_empty_conv_state
+    return make_empty_conv_state()
+
+
+async def save_conv_state(session_id: str, state: dict) -> None:
+    """
+    Persist the conversation state dict into the session record.
+    Silently skips if the column doesn't exist in Supabase yet.
+    """
+    if not _available:
+        if session_id in _mem_sessions:
+            _mem_sessions[session_id]["conv_state"] = state
+        else:
+            _mem_sessions[session_id] = {"id": session_id, "conv_state": state}
+        return
+    try:
+        _client.table("sessions").update(
+            {"conv_state": state}
+        ).eq("id", session_id).execute()
+    except Exception as exc:
+        logger.warning(f"save_conv_state failed (non-critical): {exc}")
+        if session_id in _mem_sessions:
+            _mem_sessions[session_id]["conv_state"] = state
+        else:
+            _mem_sessions[session_id] = {"id": session_id, "conv_state": state}
 
 
 # ─────────────────────────────────────────────
 # MESSAGES
+
 # ─────────────────────────────────────────────
 
 async def save_message(session_id: str, role: str, content: str) -> dict:
