@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
 from agents import prepq_agent, retrieval
+from agents import onboarding_engine as ob
 from db import supabase
 from middleware.auth import require_auth
 from middleware.security import _detect_violation
@@ -97,6 +98,17 @@ async def _stream_generator(
         )
     )
 
+async def _stream_onboarding_question(question: str, session_id: str):
+    """
+    Stream a deterministic onboarding question as SSE without calling the LLM.
+    Saves both the assistant question and (optionally) the user message to DB.
+    """
+    yield f'data: {json.dumps({"type": "metadata", "session_id": session_id})}\n\n'
+    # Stream word-by-word for a natural feel
+    for word in question.split(" "):
+        yield f'data: {json.dumps({"type": "chunk", "text": word + " "})}\n\n'
+    yield f'data: {json.dumps({"type": "done"})}\n\n'
+
 
 @router.post("")
 async def chat(
@@ -106,10 +118,14 @@ async def chat(
 ):
     """
     Main streaming chat endpoint.
-    - Creates a new session if session_id not provided
-    - Fetches conversation history for context window
-    - Fetches company intel on first message (if session has company/role)
-    - Streams Groq response as SSE
+
+    Onboarding is handled deterministically — the LLM is NEVER asked to
+    collect onboarding information. Instead:
+      1. Load the structured onboarding state for this session.
+      2. Run the extraction engine on the user message.
+      3. Persist the updated state.
+      4. If onboarding is still incomplete → stream the next question directly.
+      5. If onboarding is complete → call the LLM with the profile injected.
     """
     # Security Scan
     is_violation, _ = _detect_violation(body.message)
@@ -121,7 +137,7 @@ async def chat(
     email = getattr(request.state, "user_email", "")
     await supabase.upsert_user(user_id, email)
 
-    # Session management
+    # ── Session management ───────────────────────────────────────────────────
     session_id = body.session_id
     session: Optional[dict] = None
 
@@ -131,46 +147,116 @@ async def chat(
     else:
         session = await supabase.get_session(session_id)
         if not session:
-            # In offline mode, create a new session with the provided ID
             session = await supabase.create_session(user_id)
             session_id = session["id"]
         elif session.get("user_id") != user_id:
             from fastapi import HTTPException
             raise HTTPException(status_code=403, detail="Session not found or access denied.")
 
+    # ── Deterministic onboarding engine ─────────────────────────────────────
+    # Check if the frontend already completed structured onboarding. If
+    # onboarding_context is provided, the structured form was used and we
+    # skip the conversational onboarding engine entirely.
+    use_conversational_onboarding = (
+        not body.onboarding_context or not body.onboarding_context.strip()
+    )
+
+    ob_state: dict = {}
+    if use_conversational_onboarding:
+        # Load current onboarding state for this session
+        ob_state = await supabase.get_onboarding_state(session_id)
+
+        # Extract any new fields from the user's message
+        new_ob_state, extracted = ob.process_message(body.message, ob_state)
+
+        # Always persist immediately (before any LLM call)
+        if extracted:
+            await supabase.save_onboarding_state(session_id, new_ob_state)
+            ob_state = new_ob_state
+
+        ob.log_state(
+            session_id,
+            ob_state,
+            extracted,
+            ob.next_missing_field(ob_state),
+        )
+
+        # Save the user message to history regardless of onboarding status
+        # (so context is preserved even for the onboarding turns)
+        asyncio.create_task(
+            supabase.save_message(session_id, "user", body.message)
+        )
+
+        # If onboarding is not complete, return the next question deterministically
+        if not ob.is_complete(ob_state):
+            next_field = ob.next_missing_field(ob_state)
+            question = ob.build_question(next_field)  # type: ignore[arg-type]
+
+            logger.info(
+                f"[onboarding] Asking next field={next_field} | session={session_id[:8]}…"
+            )
+
+            # Save the assistant question to history for continuity
+            asyncio.create_task(
+                supabase.save_message(session_id, "assistant", question)
+            )
+
+            # Also stage in pending buffer so follow-up sees it immediately
+            now = datetime.now(timezone.utc).isoformat()
+            _pending_messages[session_id] = [
+                {"id": str(uuid4()), "session_id": session_id, "role": "user",
+                 "content": body.message, "created_at": now},
+                {"id": str(uuid4()), "session_id": session_id, "role": "assistant",
+                 "content": question, "created_at": now},
+            ]
+
+            return StreamingResponse(
+                _stream_onboarding_question(question, session_id),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "X-Accel-Buffering": "no",
+                    "X-Session-ID": session_id,
+                },
+            )
+
+    # ── Onboarding complete — proceed to LLM ────────────────────────────────
+
     # Fetch conversation history (last 20 messages for context window)
-    # Merge DB messages with any pending (not-yet-persisted) messages from
-    # the previous exchange to eliminate the race condition.
     history_from_db = await supabase.get_messages(session_id, limit=40)
     pending = _pending_messages.get(session_id, [])
 
     if pending:
-        # Filter out pending messages already present in DB (by role+content match)
         db_contents = {(m["role"], m["content"]) for m in history_from_db}
         new_pending = [p for p in pending if (p["role"], p["content"]) not in db_contents]
-        history = (history_from_db + new_pending)[-20:]  # keep last 20, oldest-first
+        history = (history_from_db + new_pending)[-20:]
     else:
         history = history_from_db[-20:]
 
     logger.info(
         f"[memory] session={session_id[:8]}… | "
         f"db_msgs={len(history_from_db)} | pending_msgs={len(pending)} | "
-        f"total_sent_to_llm={len(history) + 1}"  # +1 for current user message
+        f"total_sent_to_llm={len(history) + 1}"
     )
 
-    # Fetch company intel if this session has company/role set
+    # ── Build context ────────────────────────────────────────────────────────
     context_parts: list[str] = []
 
-    # 1. Onboarding context sent by the frontend (always available after onboarding)
+    # 1. Structured profile from the deterministic engine (if conversational flow)
+    if use_conversational_onboarding and ob.is_complete(ob_state):
+        profile_summary = ob.build_state_summary(ob_state)
+        context_parts.append(profile_summary)
+
+    # 2. Profile from frontend structured onboarding form
     if body.onboarding_context and body.onboarding_context.strip():
         context_parts.append(
             "USER PROFILE (from onboarding — always remember this):\n"
             + body.onboarding_context.strip()
         )
 
-    # 2. Live company intel (fetched on early messages only)
-    company = session.get("company", "") if session else ""
-    role = session.get("role", "") if session else ""
+    # 3. Live company intel (fetched on early messages only)
+    company = ob_state.get("company") or (session.get("company", "") if session else "")
+    role = ob_state.get("role") or (session.get("role", "") if session else "")
 
     if company and role and len(history) <= 2:
         try:
@@ -190,7 +276,7 @@ async def chat(
         f"approx_prompt_tokens={(context_chars + history_chars + len(body.message)) // 4}"
     )
 
-    # Stream the response
+    # Stream the LLM response
     return StreamingResponse(
         _stream_generator(body.message, session_id, user_id, history, context),
         media_type="text/event-stream",
@@ -200,6 +286,7 @@ async def chat(
             "X-Session-ID": session_id,
         },
     )
+
 
 
 @router.get("/session/{session_id}")

@@ -184,6 +184,62 @@ async def get_user_sessions(user_id: str, limit: int = 10) -> list[dict]:
 
 
 # ─────────────────────────────────────────────
+# ONBOARDING STATE
+# Stored as a JSON blob inside the session record so it survives
+# backend restarts even in offline mode (in-memory store).
+# ─────────────────────────────────────────────
+
+async def get_onboarding_state(session_id: str) -> dict:
+    """
+    Load the structured onboarding state for a session.
+    Returns an empty state dict if not yet set.
+    """
+    from agents.onboarding_engine import make_empty_state
+    if not _available:
+        session = _mem_sessions.get(session_id, {})
+        return session.get("onboarding_state") or make_empty_state()
+    try:
+        result = (
+            _client.table("sessions")
+            .select("onboarding_state")
+            .eq("id", session_id)
+            .maybe_single()
+            .execute()
+        )
+        if result.data and result.data.get("onboarding_state"):
+            return result.data["onboarding_state"]
+    except Exception as exc:
+        logger.warning(f"get_onboarding_state failed: {exc}")
+    return make_empty_state()
+
+
+async def save_onboarding_state(session_id: str, state: dict) -> None:
+    """
+    Persist the onboarding state dict into the session record.
+    Silently skips if the column doesn't exist in Supabase yet.
+    """
+    if not _available:
+        if session_id in _mem_sessions:
+            _mem_sessions[session_id]["onboarding_state"] = state
+        else:
+            _mem_sessions[session_id] = {"id": session_id, "onboarding_state": state}
+        return
+    try:
+        _client.table("sessions").update(
+            {"onboarding_state": state}
+        ).eq("id", session_id).execute()
+    except Exception as exc:
+        logger.warning(f"save_onboarding_state failed (non-critical): {exc}")
+        # Degrade to in-memory so the session doesn't lose state
+        if session_id in _mem_sessions:
+            _mem_sessions[session_id]["onboarding_state"] = state
+        else:
+            _mem_sessions[session_id] = {"id": session_id, "onboarding_state": state}
+
+
+
+
+# ─────────────────────────────────────────────
 # MESSAGES
 # ─────────────────────────────────────────────
 
