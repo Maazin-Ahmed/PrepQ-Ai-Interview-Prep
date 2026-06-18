@@ -69,17 +69,15 @@ ROUND_ALIASES: dict[str, str] = {
 
 LEVEL_ALIASES: dict[str, str] = {
     "beginner": "beginner",
-    "start": "beginner",
-    "new": "beginner",
     "fresher": "beginner",
     "no experience": "beginner",
-    "zero": "beginner",
+    "zero experience": "beginner",
+    "complete beginner": "beginner",
+    "just starting": "beginner",
     "some": "some_experience",
     "some experience": "some_experience",
     "intermediate": "some_experience",
-    "mid": "some_experience",
     "average": "some_experience",
-    "ok": "some_experience",
     "okay": "some_experience",
     "decent": "some_experience",
     "confident": "confident",
@@ -240,31 +238,53 @@ def extract_fields(
     """
     extracted: dict = {}
     text = message.strip()
+    text_lower = text.lower()
 
-    # ── Always try round/level/days — they're distinctive enough ──
+    # Words that clearly indicate a filler/navigation phrase, not a data answer.
+    # These should never be stored as company/role/level values.
+    _FILLER_WORDS = {
+        "start", "let", "begin", "hello", "hi", "hey", "ok", "okay", "yes",
+        "no", "sure", "great", "thanks", "thank", "alright", "go", "ready",
+        "yep", "nope", "please", "now", "next", "continue",
+    }
+    words_lower = set(text_lower.split())
+    # Message is a filler if it contains only filler words (and no company/role/tech keywords)
+    is_filler = (
+        words_lower.issubset(_FILLER_WORDS) or
+        (len(text.split()) <= 3 and
+         not any(kw in text_lower for kw in list(KNOWN_COMPANIES) + list(ROLE_KEYWORDS) + ["day", "technical", "hr", "oa"]) and
+         words_lower & _FILLER_WORDS)  # has at least one filler word
+    )
+
+    # ── Round — distinctive enough to always check ──────────────────────────
     if not state.get("round"):
         r = _extract_round(text)
         if r:
             extracted["round"] = r
 
+    # ── Level — extract when:
+    #   a) we explicitly asked for it (current_field == "level"), OR
+    #   b) the phrase is unambiguous (contains a clear level keyword and is not a filler)
     if not state.get("level"):
-        lv = _extract_level(text)
-        if lv:
-            extracted["level"] = lv
+        # Always try if we specifically asked for level
+        if current_field == "level" or not is_filler:
+            lv = _extract_level(text)
+            if lv:
+                extracted["level"] = lv
 
+    # ── Days ────────────────────────────────────────────────────────────────
     if not state.get("days_left"):
-        # Only parse days when we asked for it OR when the message looks like a number
         if current_field == "days_left" or re.match(r"^\d+\s*(?:days?)?$", text.strip(), re.I):
             d = _extract_days(text)
             if d:
                 extracted["days_left"] = d
 
-    # ── Company / Role ──────────────────────────────────────────────────────
+    # ── Company / Role ───────────────────────────────────────────────────────
     need_company = not state.get("company")
     need_role = not state.get("role")
 
     if need_company or need_role:
-        # Try combined extraction first ("DevOps for Amazon")
+        # Try combined extraction first ("DevOps for Amazon", "Amazon SDE-1")
         company_guess, role_guess = _split_company_role(text)
 
         if company_guess and need_company:
@@ -272,15 +292,18 @@ def extract_fields(
         if role_guess and need_role:
             extracted["role"] = _title_case(role_guess)
 
-        # Fallback: if we're explicitly asked for company, use the whole reply
-        if need_company and "company" not in extracted and current_field == "company":
+        # Fallback: if we explicitly asked for company AND the reply isn't a filler phrase,
+        # treat the whole reply as the company name
+        if need_company and "company" not in extracted and current_field == "company" and not is_filler:
             extracted["company"] = _title_case(text)
 
-        # Fallback: if we're explicitly asked for role, use the whole reply
-        if need_role and "role" not in extracted and current_field == "role":
+        # Fallback: if we explicitly asked for role AND the reply isn't a filler phrase,
+        # treat the whole reply as the role name
+        if need_role and "role" not in extracted and current_field == "role" and not is_filler:
             extracted["role"] = _title_case(text)
 
     return extracted
+
 
 
 def _title_case(s: str) -> str:
