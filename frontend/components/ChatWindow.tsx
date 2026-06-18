@@ -160,6 +160,12 @@ export default function ChatWindow({ sessionId: initialSessionId }: ChatWindowPr
   const [error, setError] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
 
+  // ── Ref mirror of sessionId so callbacks always read the latest value
+  // without needing sessionId in their useCallback dependency arrays.
+  // This prevents stale-closure bugs where the 2nd message is sent with
+  // a null sessionId because React hasn't re-rendered yet.
+  const sessionIdRef = useRef<string | null>(initialSessionId);
+
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -196,6 +202,14 @@ export default function ChatWindow({ sessionId: initialSessionId }: ChatWindowPr
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialSessionId]);
 
+  // Keep ref in sync with state on every render
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+    if (sessionId) {
+      console.debug(`[ChatWindow] session_id synced: ${sessionId}`);
+    }
+  }, [sessionId]);
+
   // Persist messages whenever they change (skip during streaming to avoid churn)
   useEffect(() => {
     if (!hydrated || !sessionId || isStreaming) return;
@@ -219,6 +233,14 @@ export default function ChatWindow({ sessionId: initialSessionId }: ChatWindowPr
     setError(null);
     setInput("");
 
+    // Read from ref to always get the latest sessionId, even if React
+    // hasn't re-rendered yet after the first message set it.
+    const currentSessionId = sessionIdRef.current;
+
+    console.debug(
+      `[ChatWindow] sendMessage | session_id=${currentSessionId ?? "null (new session)"}`
+    );
+
     const userMsg: Message = {
       id: uid(),
       role: "user",
@@ -239,12 +261,12 @@ export default function ChatWindow({ sessionId: initialSessionId }: ChatWindowPr
     setIsStreaming(true);
 
     // Load onboarding context to send with this request
-    const ctx = sessionId ? loadContext(sessionId) : null;
+    const ctx = currentSessionId ? loadContext(currentSessionId) : null;
     const onboardingContext = ctx ? buildContextString(ctx) : undefined;
 
     await streamChat({
       message: text,
-      sessionId: sessionId || undefined,
+      sessionId: currentSessionId || undefined,
       onboardingContext,
       onChunk: (chunk) => {
         setMessages((prev) =>
@@ -254,6 +276,10 @@ export default function ChatWindow({ sessionId: initialSessionId }: ChatWindowPr
         );
       },
       onSessionId: (sid) => {
+        console.debug(`[ChatWindow] onSessionId received: ${sid}`);
+        // Update both state and ref immediately so any subsequent
+        // sendMessage call (before re-render) uses the correct session.
+        sessionIdRef.current = sid;
         setSessionId(sid);
       },
       onDone: () => {
@@ -263,7 +289,12 @@ export default function ChatWindow({ sessionId: initialSessionId }: ChatWindowPr
           )
         );
         setIsStreaming(false);
-        if (sessionId) touchSession(sessionId);
+        // Use ref — sessionId state may not have updated yet in this closure
+        const finalSessionId = sessionIdRef.current;
+        if (finalSessionId) touchSession(finalSessionId);
+        console.debug(
+          `[ChatWindow] onDone | session_id=${finalSessionId ?? "null"}`
+        );
         inputRef.current?.focus();
       },
       onError: (err) => {
@@ -278,7 +309,10 @@ export default function ChatWindow({ sessionId: initialSessionId }: ChatWindowPr
         setIsStreaming(false);
       },
     });
-  }, [input, isStreaming, sessionId]);
+  // sessionId intentionally excluded from deps — we use sessionIdRef instead
+  // to avoid the stale-closure bug where a new message sends null.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [input, isStreaming]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {

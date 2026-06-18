@@ -1,7 +1,9 @@
 import asyncio
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Optional
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
@@ -16,18 +18,31 @@ logger = logging.getLogger("prepq.router.chat")
 
 router = APIRouter()
 
+# ─── In-memory buffer for messages not yet flushed to DB ───────────────────
+# Maps session_id → list of {role, content} dicts saved since last DB write.
+# This guarantees that even with the async fire-and-forget save, a follow-up
+# request in the same process can still access the latest messages.
+_pending_messages: dict[str, list[dict]] = {}
 
-async def _save_messages_background(
+
+async def _save_messages_to_db(
     session_id: str,
     user_message: str,
     assistant_response: str,
 ) -> None:
-    """Fire-and-forget DB writes — don't block the stream."""
+    """Persist both messages to the database."""
     try:
         await supabase.save_message(session_id, "user", user_message)
         await supabase.save_message(session_id, "assistant", assistant_response)
+        logger.debug(
+            f"[memory] Saved exchange to DB | session={session_id[:8]}… "
+            f"| user={len(user_message)} chars | assistant={len(assistant_response)} chars"
+        )
     except Exception as exc:
         logger.warning(f"Failed to save messages for session {session_id}: {exc}")
+    finally:
+        # Clear the in-memory pending buffer for this session now that DB is written
+        _pending_messages.pop(session_id, None)
 
 
 async def _stream_generator(
@@ -40,6 +55,10 @@ async def _stream_generator(
     """
     Wraps the agent stream and captures the full response for DB persistence.
     Yields SSE chunks, then saves the exchange in the background.
+
+    KEY FIX: We immediately stage both messages in _pending_messages so that
+    any follow-up request arriving before the DB write completes can still
+    see the full history via get_messages (which now merges DB + pending).
     """
     # Yield session_id as first metadata event
     yield f'data: {json.dumps({"type": "metadata", "session_id": session_id})}\n\n'
@@ -57,12 +76,24 @@ async def _stream_generator(
             except Exception:
                 pass
 
-    # Fire-and-forget — don't await this so the stream closes cleanly
+    assistant_text = "".join(full_response)
+
+    # Stage in memory immediately so the next request sees these messages
+    # even if the DB write hasn't completed yet.
+    now = datetime.now(timezone.utc).isoformat()
+    _pending_messages[session_id] = [
+        {"id": str(uuid4()), "session_id": session_id, "role": "user",
+         "content": user_message, "created_at": now},
+        {"id": str(uuid4()), "session_id": session_id, "role": "assistant",
+         "content": assistant_text, "created_at": now},
+    ]
+
+    # Fire-and-forget DB write — doesn't block the stream
     asyncio.create_task(
-        _save_messages_background(
+        _save_messages_to_db(
             session_id,
             user_message,
-            "".join(full_response),
+            assistant_text,
         )
     )
 
@@ -108,7 +139,24 @@ async def chat(
             raise HTTPException(status_code=403, detail="Session not found or access denied.")
 
     # Fetch conversation history (last 20 messages for context window)
-    history = await supabase.get_messages(session_id, limit=20)
+    # Merge DB messages with any pending (not-yet-persisted) messages from
+    # the previous exchange to eliminate the race condition.
+    history_from_db = await supabase.get_messages(session_id, limit=40)
+    pending = _pending_messages.get(session_id, [])
+
+    if pending:
+        # Filter out pending messages already present in DB (by role+content match)
+        db_contents = {(m["role"], m["content"]) for m in history_from_db}
+        new_pending = [p for p in pending if (p["role"], p["content"]) not in db_contents]
+        history = (history_from_db + new_pending)[-20:]  # keep last 20, oldest-first
+    else:
+        history = history_from_db[-20:]
+
+    logger.info(
+        f"[memory] session={session_id[:8]}… | "
+        f"db_msgs={len(history_from_db)} | pending_msgs={len(pending)} | "
+        f"total_sent_to_llm={len(history) + 1}"  # +1 for current user message
+    )
 
     # Fetch company intel if this session has company/role set
     context_parts: list[str] = []
@@ -133,6 +181,14 @@ async def chat(
             logger.warning(f"Company intel fetch failed: {exc}")
 
     context: Optional[str] = "\n\n---\n\n".join(context_parts) if context_parts else None
+
+    # Debug: log context and prompt size
+    context_chars = len(context) if context else 0
+    history_chars = sum(len(m.get("content", "")) for m in history)
+    logger.info(
+        f"[memory] context_chars={context_chars} | history_chars={history_chars} | "
+        f"approx_prompt_tokens={(context_chars + history_chars + len(body.message)) // 4}"
+    )
 
     # Stream the response
     return StreamingResponse(
